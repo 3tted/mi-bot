@@ -19,13 +19,16 @@ def si_no(valor: bool) -> str:
 
 def texto_inicio(nombre: str) -> str:
     return tarjeta(
-        f"¡Wepa, {escape(nombre)}! 💚",
-        "Soy <b>Danny Phantom</b>: mitad humano, mitad fantasma y guardián de tu grupo.\n\n"
-        "🛡️ Modero con <code>/</code> y con <code>.</code> — da igual <code>/ban</code> o <code>.ban</code>\n"
-        "🌀 Protejo contra flood, enlaces, palabras prohibidas y stickers bloqueados\n"
-        "👋 Bienvenidas, reglas y captcha anti-bots\n"
-        "🤖 Contesto con IA (Gemini) al estilo boricua\n\n"
-        "<i>Añádeme a tu grupo como administrador para empezar a patrullar.</i>",
+        f"¡Hola, {escape(nombre)}! 💚",
+        "Soy <b>Danny Phantom</b>, mitad humano y mitad fantasma, y protejo tu grupo de Telegram.\n\n"
+        "<b>Te ayudo a:</b>\n"
+        "🛡️ Moderar: banear, expulsar, silenciar y advertir\n"
+        "🧹 Mantener el chat limpio de spam, enlaces y flood\n"
+        "🧩 Verificar a los nuevos miembros con captcha\n"
+        "👋 Dar la bienvenida y mostrar las reglas\n"
+        "👥 Organizar a tu staff con roles\n"
+        "⚙️ Configurarlo todo desde un menú con botones\n\n"
+        "<i>Añádeme a tu grupo como administrador y toca 📜 Comandos para ver todo lo que sé hacer.</i>",
     )
 
 
@@ -47,11 +50,17 @@ TEXTO_IA = tarjeta(
 )
 
 TEXTO_ACERCA = tarjeta(
-    "ℹ️ Acerca de",
-    "Bot de administración inspirado en Group Help, con alma de fantasma 👻\n\n"
-    "• Comandos con <code>/</code> o <code>.</code>\n"
-    "• IA: Google Gemini\n"
-    "• Hecho en Python con python-telegram-bot",
+    "ℹ️ Acerca de Danny Phantom",
+    "Soy un bot para administrar grupos de Telegram. Mantengo tu grupo seguro, ordenado y activo "
+    "para que tú no tengas que estar pendiente todo el día.\n\n"
+    "<b>Lo que puedo hacer por tu grupo:</b>\n"
+    "🛡️ Ban, kick, mute y advertencias, también por tiempo (30m, 2h, 1d)\n"
+    "🧩 Captcha para frenar bots y cuentas falsas\n"
+    "🌊 Antiflood, antilink, palabras prohibidas y stickers bloqueados\n"
+    "👥 Roles de staff: cofundador, admin, moderador, muter, cleaner y helper\n"
+    "📌 Reglas, bienvenidas, mensajes fijados y comandos personalizados\n"
+    "📊 Ranking de los más activos y minijuegos\n\n"
+    "📜 Toca <b>Comandos</b> en el menú o escribe /help en tu grupo.",
 )
 
 
@@ -59,93 +68,101 @@ def teclado_volver(destino: str = "menu:inicio") -> Teclado:
     return Teclado([[Boton("⬅️ Volver", callback_data=destino)]])
 
 
-# ---------- Ayuda por categorías ----------
+# ---------- Menú de ayuda por niveles (como Group Help) ----------
 
 AYUDA = {
-    "moderacion": ("🛡️ Moderación", [
-        ("ban [tiempo] [motivo]", "Envía a la Zona Fantasma (banea). Tiempo: 30m, 2h, 1d, 1w"),
-        ("unban", "Regresa a alguien de la Zona Fantasma"),
-        ("kick", "Expulsa por un portal (puede volver a entrar)"),
-        ("mute [tiempo]", "Silencia con ectoplasma"),
+    "basicos": ("🟢 Comandos básicos", "Lo esencial para moderar tu grupo.", [
+        ("ban", "Banea a un usuario del grupo"),
+        ("unban", "Le quita el ban"),
+        ("kick", "Lo expulsa (puede volver a entrar)"),
+        ("mute", "Lo silencia"),
         ("unmute", "Le quita el silencio"),
-        ("warn [motivo]", "Advertencia fantasma; al llegar al límite aplica el castigo"),
-        ("unwarn", "Quita una advertencia"),
-        ("warns", "Ver y gestionar advertencias con botones"),
-        ("delban · delkick · delmute · delwarn", "Borra el mensaje y castiga al autor"),
-        ("mban · mkick · mmute · munban · munmute", "Igual pero hasta 20 usuarios a la vez"),
-        ("info · infopvt", "Información de un usuario (en el grupo o por privado)"),
-        ("ammoniti", "Lista de usuarios con advertencias"),
-        ("reload", "Actualiza la lista de administradores"),
-    ]),
-    "limpieza": ("🧹 Limpieza", [
+        ("warn", "Le da una advertencia"),
+        ("unwarn", "Le quita una advertencia"),
         ("del", "Borra el mensaje al que respondes"),
-        ("purge · mdel · multidel", "Borra desde el mensaje respondido hasta el último"),
-        ("delall → delallgo", "Marca inicio y fin y borra todo lo de en medio"),
-        ("block · unblock", "Bloquea/desbloquea un sticker o GIF"),
-        ("blacklist palabra · unblacklist palabra", "Palabras prohibidas"),
+        ("info", "Muestra la ficha de un usuario"),
+        ("rules", "Muestra las reglas del grupo"),
+        ("staff", "Muestra el staff del grupo"),
+        ("report", "Avisa al staff (también escribiendo @admin)"),
+        ("me", "Te envía tu ficha por privado"),
     ]),
-    "fijados": ("📌 Fijados", [
-        ("pin [texto]", "Fija el mensaje respondido o envía y fija un texto"),
-        ("npin · spin", "Fijar con notificación / en silencio"),
-        ("unpin · delpin", "Desfija / borra el mensaje fijado"),
-        ("unpinall", "Desfija todo"),
-        ("pinned", "Muestra el mensaje fijado"),
+    "avanzados": ("🟡 Comandos avanzados", "Más control sobre la moderación y el chat.", [
+        ("ban 2h motivo", "Ban por tiempo: 30m, 2h, 1d, 1w (igual con mute)"),
+        ("warns", "Ver y cambiar advertencias con botones"),
+        ("ammoniti", "Lista de usuarios con advertencias"),
+        ("delban · delkick · delmute · delwarn", "Borra el mensaje y castiga al autor"),
+        ("mban · mkick · mmute · munban · munmute", "Lo mismo, hasta 20 usuarios a la vez"),
+        ("purge", "Borra desde el mensaje respondido hasta el último"),
+        ("delall → delallgo", "Marca inicio y fin, y borra lo de en medio"),
+        ("pin · spin · unpin · unpinall", "Fijar (con o sin aviso) y desfijar"),
+        ("delpin · repin · editpin · pinned", "Gestionar el mensaje fijado"),
+        ("setrules", "Cambia las reglas"),
+        ("setwelcome · setgoodbye", "Mensaje de bienvenida y despedida"),
+        ("antiflood 5 4", "Máximo de mensajes en X segundos"),
+        ("blacklist · unblacklist", "Palabras prohibidas"),
+        ("block · unblock", "Bloquea un sticker o GIF"),
+        ("link · geturl · chatid", "Enlace del grupo, de un mensaje, ID"),
+        ("reload", "Actualiza la lista de administradores"),
+        ("top10 · loteria · slot · game", "Ranking, sorteo y minijuegos"),
     ]),
-    "grupo": ("⚙️ Grupo", [
-        ("settings · config", "Menú de ajustes con botones"),
-        ("pvtsettings · pvtconfig", "Ajustes por privado"),
-        ("setrules texto", "Cambia las reglas"),
-        ("setwelcome texto · setgoodbye texto", "Bienvenida/despedida ({nombre}, {grupo}, {usuario}, {id})"),
-        ("antiflood N [segundos]", "Mensajes permitidos antes de silenciar"),
-        ("silence · unsilence", "Silencio total del grupo"),
-        ("personal nombre texto · unpersonal nombre", "Comandos personalizados"),
-        ("commands", "Lista los comandos personalizados"),
-        ("send texto", "El bot envía un mensaje"),
-        ("chatid · geturl · link", "ID del grupo, enlace a un mensaje, enlace del grupo"),
-        ("backup", "Copia de los ajustes por privado"),
-    ]),
-    "roles": ("👥 Roles", [
-        ("cofounder · uncofounder", "Cofundador (solo el fundador)"),
+    "expertos": ("🔴 Comandos expertos", "Roles, ajustes y herramientas del fundador.", [
+        ("settings · pvtsettings", "Menú de ajustes (en el grupo o por privado)"),
+        ("cofounder · uncofounder", "Nombra cofundador (solo el fundador)"),
         ("admin · unadmin", "Administrador del bot"),
-        ("mod · unmod", "Moderador: ban, kick, warn, mute"),
+        ("mod · unmod", "Moderador: ban, kick, mute y warn"),
         ("muter · unmuter", "Solo puede silenciar"),
         ("cleaner · uncleaner", "Solo puede borrar mensajes"),
-        ("helper · unhelper", "Puede ver info y advertencias"),
-        ("free · unfree", "Libre de antiflood, antilink y filtros"),
-        ("staff · listroles", "Ver el staff y los roles"),
-    ]),
-    "diversion": ("🎲 Diversión", [
-        ("top10", "Los 10 más activos"),
-        ("loteria", "Elige a alguien al azar"),
-        ("slot", "Máquina tragamonedas"),
-        ("game", "Minijuegos"),
-    ]),
-    "publicos": ("🌐 Para todos", [
-        ("rules", "Reglas del grupo"),
-        ("me", "Tu información por privado"),
-        ("report · @admin", "Avisa al staff"),
-        ("ia pregunta", "Pregúntale a la IA"),
-        ("traducir [idioma]", "Traduce el mensaje respondido"),
-        ("help", "Esta ayuda"),
+        ("helper · unhelper", "Puede ver fichas y advertencias"),
+        ("free · unfree", "Lo libra de antiflood, antilink y filtros"),
+        ("listroles", "Lista de roles por privado"),
+        ("personal nombre texto", "Crea un comando propio del grupo"),
+        ("unpersonal · commands", "Borra o lista los comandos propios"),
+        ("silence · unsilence", "Silencio total: solo el staff escribe"),
+        ("send texto", "El bot envía un mensaje en el grupo"),
+        ("infopvt", "Ficha de un usuario por privado"),
+        ("backup", "Copia de los ajustes por privado"),
     ]),
 }
+
+GUIA_PRO = tarjeta(
+    "⭐ Guía Pro",
+    "<b>1. Ponme a trabajar</b>\n"
+    "Añádeme al grupo como <b>administrador</b> con permiso para borrar mensajes, "
+    "restringir miembros y fijar mensajes.\n\n"
+    "<b>2. Configúrame</b>\n"
+    "Escribe /settings en el grupo y activa lo que necesites: bienvenida, captcha, "
+    "antiflood, antilink y el castigo al llegar al límite de advertencias.\n\n"
+    "<b>3. A quién va dirigido un comando</b>\n"
+    "Responde al mensaje de la persona, o escribe su <code>@usuario</code> o su ID: "
+    "<code>/ban @usuario 1d spam</code>\n\n"
+    "<b>4. Bienvenida a tu medida</b>\n"
+    "<code>/setwelcome ¡Hola {nombre}, bienvenid@ a {grupo}!</code>\n"
+    "Variables: {nombre}, {usuario}, {id}, {grupo}\n\n"
+    "<b>5. Reparte el trabajo</b>\n"
+    "Fundador → Cofundador → Admin → Moderador. Los muter, cleaner y helper "
+    "solo tienen su tarea. Mira quién es quién con /staff.\n\n"
+    "<b>6. Trucos</b>\n"
+    "• Todos los comandos también funcionan con punto: <code>.ban</code>\n"
+    "• Crea respuestas rápidas con /personal (ej. <code>/personal precios ...</code>)\n"
+    "• /silence cierra el chat en una emergencia",
+)
 
 
 def texto_ayuda_indice() -> str:
     return tarjeta(
-        "📜 Comandos",
-        "Todos funcionan con <b>/</b> o con <b>.</b> al principio.\n"
-        "Ejemplo: <code>/ban</code> = <code>.ban</code>\n\n"
-        "Para usarlos sobre alguien: <b>responde a su mensaje</b>, o escribe su <code>@usuario</code> o su ID.\n\n"
-        "Elige una categoría 👇",
+        "📜 Menú de ayuda",
+        "Aquí tienes todos mis comandos, ordenados por nivel. Elige una sección 👇\n\n"
+        "🟢 <b>Básicos</b>: lo esencial para moderar\n"
+        "🟡 <b>Avanzados</b>: limpieza, fijados, bienvenidas y filtros\n"
+        "🔴 <b>Expertos</b>: roles, ajustes y herramientas del fundador\n"
+        "⭐ <b>Guía Pro</b>: cómo configurarme paso a paso",
     )
 
 
 def teclado_ayuda_indice(volver: bool = True) -> Teclado:
-    claves = list(AYUDA)
     filas = [
-        [Boton(AYUDA[a][0], callback_data=f"ayuda:{a}") for a in claves[i:i + 2]]
-        for i in range(0, len(claves), 2)
+        [Boton("🟢 Básicos", callback_data="ayuda:basicos"), Boton("🟡 Avanzados", callback_data="ayuda:avanzados")],
+        [Boton("🔴 Expertos", callback_data="ayuda:expertos"), Boton("⭐ Guía Pro", callback_data="ayuda:guia")],
     ]
     if volver:
         filas.append([Boton("⬅️ Volver", callback_data="menu:inicio")])
@@ -155,9 +172,11 @@ def teclado_ayuda_indice(volver: bool = True) -> Teclado:
 
 
 def texto_ayuda(categoria: str) -> str:
-    titulo, comandos = AYUDA[categoria]
-    lineas = [f"• <code>/{c}</code>\n   {escape(d)}" for c, d in comandos]
-    return tarjeta(titulo, "\n".join(lineas) + "\n\n<i>Recuerda: también con punto, ej. <code>.ban</code></i>")
+    if categoria == "guia":
+        return GUIA_PRO
+    titulo, subtitulo, comandos = AYUDA[categoria]
+    lineas = [f"• <code>/{c}</code> — {escape(d)}" for c, d in comandos]
+    return tarjeta(titulo, f"<i>{subtitulo}</i>\n\n" + "\n".join(lineas))
 
 
 # ---------- Ajustes del grupo ----------

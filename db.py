@@ -30,7 +30,15 @@ def _url_base_datos() -> str:
     return url
 
 
-engine = create_engine(_url_base_datos(), pool_pre_ping=True)
+# pool_pre_ping y pool_recycle: Neon duerme la base cuando no se usa y corta las conexiones viejas
+engine = create_engine(_url_base_datos(), pool_pre_ping=True, pool_recycle=240)
+
+
+def descripcion() -> str:
+    """Qué base de datos se está usando, sin mostrar la contraseña (para los logs)."""
+    if engine.dialect.name == "postgresql":
+        return f"Postgres en {engine.url.host} ✅ (los datos se guardan para siempre)"
+    return "SQLite local ⚠️ (en Render gratis se borra al reiniciar; configura DATABASE_URL)"
 metadata = MetaData()
 
 chats = Table(

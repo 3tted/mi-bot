@@ -7,14 +7,16 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from html import escape
 
-from telegram import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats, ChatPermissions, \
-    LinkPreviewOptions, MessageEntity, Update
+from telegram import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats, BotCommandScopeChat, \
+    ChatPermissions, LinkPreviewOptions, MessageEntity, Update
 from telegram.constants import ChatType, ParseMode
 from telegram.error import BadRequest, Forbidden
-from telegram.ext import Application, CallbackQueryHandler, ContextTypes, Defaults, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, ChatMemberHandler, ContextTypes, Defaults, \
+    MessageHandler, filters
 from telegram.helpers import mention_html
 
 import db
+import dueno
 import ia
 import ui
 from comandos import COMANDOS, avisar_staff, borrar_mensaje_luego, ejecutar, rellenar, texto_warns
@@ -126,10 +128,13 @@ async def procesar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.recordar_usuario(usuario.id, usuario.username, usuario.full_name)
 
     if chat.type in ES_GRUPO:
+        db.tocar_grupo(chat.id, chat.title, chat.username)
         if usuario and not usuario.is_bot and not mensaje.sender_chat:
             db.contar_mensaje(chat.id, usuario.id)
         if await revisar_filtros(update, context):
             return
+    elif chat.type == ChatType.PRIVATE and usuario:
+        db.registrar_privado(usuario.id)
 
     texto = mensaje.text or mensaje.caption or ""
     m = PATRON_COMANDO.match(texto)
@@ -231,7 +236,10 @@ async def botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tipo, *partes = q.data.split(":")
     privado = q.message.chat.type == ChatType.PRIVATE
 
-    if tipo == "menu":
+    if tipo == "own":
+        await dueno.botones(update, context, partes)
+
+    elif tipo == "menu":
         destino = partes[0]
         if destino == "inicio":
             await q.edit_message_text(ui.texto_inicio(q.from_user.first_name),
@@ -352,6 +360,13 @@ async def al_iniciar(app: Application):
     ]
     await app.bot.set_my_commands(privados, scope=BotCommandScopeAllPrivateChats())
     await app.bot.set_my_commands(grupos, scope=BotCommandScopeAllGroupChats())
+    if dueno.id_dueno():
+        # El dueño ve además los comandos del panel en su chat privado
+        panel = [BotCommand("panel", "🔐 Panel del dueño"), BotCommand("grupos", "📋 Mis grupos")]
+        try:
+            await app.bot.set_my_commands(privados + panel, scope=BotCommandScopeChat(dueno.id_dueno()))
+        except Exception as e:
+            logging.warning(f"No pude poner los comandos del dueño (¿ya inició el chat conmigo?): {e}")
     app.job_queue.run_repeating(guardar_conteo, interval=60, first=60)
 
 
@@ -367,6 +382,8 @@ def main():
     )
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, nuevos_miembros))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, miembro_salio))
+    app.add_handler(MessageHandler(filters.StatusUpdate.MIGRATE, dueno.grupo_migrado))
+    app.add_handler(ChatMemberHandler(dueno.cambio_en_el_bot, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(CallbackQueryHandler(botones))
     app.add_handler(MessageHandler(filters.UpdateType.MESSAGE & ~filters.StatusUpdate.ALL, procesar))
     app.add_error_handler(error)

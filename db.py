@@ -10,6 +10,7 @@ import copy
 import json
 import os
 import random
+import time
 from collections import defaultdict
 
 from sqlalchemy import (
@@ -52,6 +53,29 @@ usuarios = Table(
     Column("user_id", BigInteger, primary_key=True),
     Column("username", String(64), index=True),
     Column("nombre", String(256)),
+)
+
+# Grupos donde está (o estuvo) el bot. Las fechas son segundos desde 1970 (UTC).
+grupos = Table(
+    "grupos", metadata,
+    Column("chat_id", BigInteger, primary_key=True),
+    Column("titulo", String(256)),
+    Column("username", String(64)),
+    Column("activo", Integer, nullable=False, default=1),
+    Column("es_admin", Integer, nullable=False, default=0),
+    Column("miembros", Integer),
+    Column("agregado_por", BigInteger),
+    Column("agregado_nombre", String(256)),
+    Column("alta", BigInteger),
+    Column("ultima_actividad", BigInteger),
+)
+
+# Personas que han usado el bot por privado
+privados = Table(
+    "privados", metadata,
+    Column("user_id", BigInteger, primary_key=True),
+    Column("primera_vez", BigInteger),
+    Column("ultima_vez", BigInteger),
 )
 
 metadata.create_all(engine)
@@ -227,3 +251,83 @@ def nombre_usuario(user_id: int) -> str | None:
     with engine.connect() as con:
         fila = con.execute(select(usuarios.c.nombre).where(usuarios.c.user_id == user_id)).first()
     return fila.nombre if fila else None
+
+
+# ---------- Grupos del bot y uso por privado (panel del dueño) ----------
+
+_ultimo_toque: dict[int, tuple[float, str | None]] = {}
+
+
+def guardar_grupo(chat_id: int, **campos):
+    """Crea o actualiza un grupo. Solo cambia los campos que se pasan."""
+    ahora = int(time.time())
+    base = {"chat_id": chat_id, "activo": 1, "es_admin": 0, "alta": ahora, "ultima_actividad": ahora}
+    base.update(campos)
+    actualizar = dict(campos) or {"ultima_actividad": ahora}
+    with engine.begin() as con:
+        con.execute(_upsert(grupos, base, ["chat_id"], actualizar))
+
+
+def tocar_grupo(chat_id: int, titulo: str | None, username: str | None):
+    """Marca actividad en un grupo, como mucho una escritura cada 5 minutos por grupo."""
+    ahora = time.time()
+    ultimo = _ultimo_toque.get(chat_id)
+    if ultimo and ahora - ultimo[0] < 300 and ultimo[1] == titulo:
+        return
+    _ultimo_toque[chat_id] = (ahora, titulo)
+    guardar_grupo(chat_id, titulo=titulo, username=username, activo=1, ultima_actividad=int(ahora))
+
+
+def lista_grupos(activos: bool = True) -> list[dict]:
+    with engine.connect() as con:
+        filas = con.execute(
+            select(grupos).where(grupos.c.activo == (1 if activos else 0))
+            .order_by(grupos.c.ultima_actividad.desc())
+        ).all()
+    return [dict(f._mapping) for f in filas]
+
+
+def grupo(chat_id: int) -> dict | None:
+    with engine.connect() as con:
+        fila = con.execute(select(grupos).where(grupos.c.chat_id == chat_id)).first()
+    return dict(fila._mapping) if fila else None
+
+
+def actividad_grupo(chat_id: int) -> tuple[int, int]:
+    """(personas que han escrito, mensajes contados)"""
+    with engine.connect() as con:
+        fila = con.execute(
+            select(func.count(), func.coalesce(func.sum(miembros.c.msgs), 0))
+            .where(miembros.c.chat_id == chat_id, miembros.c.msgs > 0)
+        ).first()
+    return fila[0], fila[1]
+
+
+_ultimo_privado: dict[int, float] = {}
+
+
+def registrar_privado(user_id: int):
+    """Como mucho una escritura cada 5 minutos por persona."""
+    if time.time() - _ultimo_privado.get(user_id, 0) < 300:
+        return
+    _ultimo_privado[user_id] = time.time()
+    ahora = int(time.time())
+    with engine.begin() as con:
+        con.execute(_upsert(
+            privados, {"user_id": user_id, "primera_vez": ahora, "ultima_vez": ahora},
+            ["user_id"], {"ultima_vez": ahora},
+        ))
+
+
+def totales() -> dict:
+    hace_una_semana = int(time.time()) - 7 * 86400
+    with engine.connect() as con:
+        return {
+            "grupos": con.execute(select(func.count()).where(grupos.c.activo == 1)).scalar(),
+            "grupos_fuera": con.execute(select(func.count()).where(grupos.c.activo == 0)).scalar(),
+            "privados": con.execute(select(func.count()).select_from(privados)).scalar(),
+            "privados_semana": con.execute(
+                select(func.count()).where(privados.c.ultima_vez >= hace_una_semana)).scalar(),
+            "usuarios": con.execute(select(func.count()).select_from(usuarios)).scalar(),
+            "mensajes": con.execute(select(func.coalesce(func.sum(miembros.c.msgs), 0))).scalar(),
+        }

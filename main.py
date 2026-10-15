@@ -249,10 +249,10 @@ def main():
     # Render define RENDER_EXTERNAL_URL en los Web Services: ahí usamos webhook,
     # así Telegram "despierta" al servidor gratuito cuando llega un mensaje.
     # En tu PC (sin esa variable) usa polling como siempre.
-    print(f"Base de datos: {db.descripcion()}")
+    print(f"Base de datos: {db.descripcion()}", flush=True)
     url_publica = os.environ.get("RENDER_EXTERNAL_URL")
     if url_publica:
-        print(f"Danny_PhanBot activo por webhook en {url_publica}")
+        print(f"Danny_PhanBot activo por webhook en {url_publica}", flush=True)
         app.run_webhook(
             listen="0.0.0.0",
             port=int(os.environ.get("PORT", 10000)),
@@ -262,7 +262,7 @@ def main():
             allowed_updates=Update.ALL_TYPES,
         )
     else:
-        print("Danny_PhanBot activo por polling...")
+        print("Danny_PhanBot activo por polling...", flush=True)
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

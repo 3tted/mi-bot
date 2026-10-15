@@ -511,15 +511,27 @@ async def geturl(p: Peticion):
 # Grupo
 # =====================================================================
 
-@comando("settings", "config", rol="admin")
+@comando("settings", "config", solo_grupo=False)
 async def settings(p: Peticion):
-    await p.responder(ajustes_menu.texto_menu(p.chat.title), reply_markup=ajustes_menu.teclado_menu(p.chat.id, 0))
+    if p.chat.type == ChatType.PRIVATE:
+        # Por privado: elegir cuál de tus grupos configurar
+        grupos = await ajustes_menu.grupos_que_administra(p.bot, p.user.id)
+        if not grupos:
+            raise Aviso("⚙️ No encontré grupos donde seas administrador y yo esté. "
+                        "Escribe /settings dentro del grupo que quieres configurar.")
+        await p.responder(ajustes_menu.TEXTO_ELEGIR_GRUPO, reply_markup=ajustes_menu.teclado_elegir_grupo(grupos))
+        return
+    if nivel(await rol_de(p.update, p.context)) < NIVELES["admin"]:
+        return
+    # En el grupo: preguntar si lo configura aquí o por privado
+    await p.responder(ajustes_menu.texto_donde(p.chat.title), reply_markup=ajustes_menu.teclado_donde(p.chat.id))
 
 
 @comando("pvtsettings", "pvtconfig", rol="admin")
 async def pvtsettings(p: Peticion):
-    await enviar_privado(p, ajustes_menu.texto_menu(p.chat.title),
-                         reply_markup=ajustes_menu.teclado_menu(p.chat.id, 0))
+    if not await ajustes_menu.enviar_menu_privado(p.bot, p.user.id, p.chat.id):
+        raise Aviso(f"📭 Primero abre el chat conmigo: "
+                    f"<a href=\"{ajustes_menu.enlace_inicio(p.bot.username, p.chat.id)}\">toca aquí</a> y te llegará el menú.")
     await p.responder("📬 Te envié los ajustes por privado.")
 
 
@@ -811,7 +823,13 @@ async def game(p: Peticion):
 
 @comando("start", solo_grupo=False)
 async def start(p: Peticion):
-    if p.chat.type == ChatType.PRIVATE:
+    if p.chat.type == ChatType.PRIVATE and p.texto.startswith("cfg_") and p.texto[4:].lstrip("-").isdigit():
+        # Llegó desde el botón "👤 En privado" de /settings
+        chat_id = int(p.texto[4:])
+        if nivel((await staff(p.bot, chat_id)).get(p.user.id)) < NIVELES["admin"]:
+            raise Aviso("⛔ Solo los administradores de ese grupo pueden configurarlo.")
+        await ajustes_menu.enviar_menu_privado(p.bot, p.user.id, chat_id)
+    elif p.chat.type == ChatType.PRIVATE:
         await p.responder(ui.texto_inicio(p.user.first_name), reply_markup=ui.teclado_inicio(p.bot.username))
     else:
         await p.responder("👻 ¡Aquí estoy patrullando! Usa /help para ver mis comandos.")

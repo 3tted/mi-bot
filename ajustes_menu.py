@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from html import escape
 
 from telegram import InlineKeyboardButton as Boton, InlineKeyboardMarkup as Teclado, Update
+from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes
 
 import db
@@ -325,6 +326,53 @@ def cambiar(a: dict, control: Control, operacion: str | None):
     escribir(a, control.ruta, nuevo)
 
 
+# ---------- Dónde configurar: en el grupo o por privado ----------
+
+def texto_donde(titulo_grupo: str) -> str:
+    return (f"⚙️ <b>CONFIGURACIÓN</b>\n<b>Grupo:</b> {escape(titulo_grupo)}\n\n"
+            "<i>¿Dónde quieres abrir el menú de ajustes?</i>")
+
+
+def teclado_donde(chat_id: int) -> Teclado:
+    return Teclado([
+        [Boton("👥 Aquí en el grupo", callback_data=f"cfg:{chat_id}:m:0"),
+         Boton("👤 En privado", callback_data=f"cfg:{chat_id}:pvt")],
+        [Boton("❌ Cancelar", callback_data=f"cfg:{chat_id}:cerrar")],
+    ])
+
+
+def enlace_inicio(usuario_bot: str, chat_id: int) -> str:
+    """Abre el chat privado con el bot y le pide el menú de ese grupo (/start cfg_<id>)."""
+    return f"https://t.me/{usuario_bot}?start=cfg_{chat_id}"
+
+
+async def enviar_menu_privado(bot, user_id: int, chat_id: int) -> bool:
+    try:
+        await bot.send_message(user_id, texto_menu(await titulo_de(bot, chat_id)),
+                               reply_markup=teclado_menu(chat_id, 0))
+        return True
+    except (BadRequest, Forbidden):
+        return False  # La persona todavía no ha abierto el chat conmigo
+
+
+async def grupos_que_administra(bot, user_id: int) -> list[tuple[int, str]]:
+    grupos = []
+    for g in db.lista_grupos()[:50]:
+        if nivel((await staff(bot, g["chat_id"])).get(user_id)) >= NIVELES["admin"]:
+            grupos.append((g["chat_id"], g["titulo"] or str(g["chat_id"])))
+    return grupos
+
+
+TEXTO_ELEGIR_GRUPO = ("⚙️ <b>CONFIGURACIÓN</b>\n\n"
+                      "<i>Elige el grupo que quieres configurar.</i>")
+
+
+def teclado_elegir_grupo(grupos: list[tuple[int, str]]) -> Teclado:
+    filas = [[Boton(f"👥 {titulo[:40]}", callback_data=f"cfg:{chat_id}:m:0")] for chat_id, titulo in grupos]
+    filas.append([Boton("❌ Cerrar", callback_data="cerrar")])
+    return Teclado(filas)
+
+
 async def titulo_de(bot, chat_id: int) -> str:
     g = db.grupo(chat_id)
     if g and g.get("titulo"):
@@ -350,6 +398,17 @@ async def manejar(update: Update, context: ContextTypes.DEFAULT_TYPE, partes: li
         return
     if accion == "lang":
         await q.answer("🇪🇸 Por ahora hablo solo español.", show_alert=True)
+        return
+    if accion == "pvt":
+        if await enviar_menu_privado(context.bot, q.from_user.id, chat_id):
+            await q.edit_message_text(
+                "📬 Te envié el menú de ajustes por privado.",
+                reply_markup=Teclado([[Boton("👤 Ir al chat privado", url=f"https://t.me/{context.bot.username}")]]),
+            )
+            await q.answer()
+        else:
+            # Nunca me ha escrito: Telegram abre el chat conmigo y allí le mando el menú
+            await q.answer(url=enlace_inicio(context.bot.username, chat_id))
         return
 
     titulo = await titulo_de(context.bot, chat_id)

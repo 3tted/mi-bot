@@ -104,6 +104,9 @@ AYUDA = {
         ("link · geturl · chatid", "Enlace del grupo, de un mensaje, ID"),
         ("reload", "Actualiza la lista de administradores"),
         ("top10 · loteria · slot · game", "Ranking, sorteo y minijuegos"),
+        ("tagall texto", "Menciona a todos (también escribiendo @all)"),
+        ("filtro palabra respuesta · unfiltro · filtros", "Respuestas automáticas"),
+        ("recurrente 6h texto · recurrentes · unrecurrente", "Mensajes que se repiten solos"),
     ]),
     "expertos": ("🔴 Comandos expertos", "Roles, ajustes y herramientas del fundador.", [
         ("settings · pvtsettings", "Menú de ajustes (en el grupo o por privado)"),
@@ -121,6 +124,9 @@ AYUDA = {
         ("send texto", "El bot envía un mensaje en el grupo"),
         ("infopvt", "Ficha de un usuario por privado"),
         ("backup", "Copia de los ajustes por privado"),
+        ("magic ban · unmagic", "Convierte un sticker o GIF en un comando"),
+        ("setlog ID · setlink · settopic", "Canal de registro, enlace propio y tema de avisos"),
+        ("id", "Tu ID y el del grupo"),
     ]),
 }
 
@@ -177,46 +183,6 @@ def texto_ayuda(categoria: str) -> str:
     titulo, subtitulo, comandos = AYUDA[categoria]
     lineas = [f"• <code>/{c}</code> — {escape(d)}" for c, d in comandos]
     return tarjeta(titulo, f"<i>{subtitulo}</i>\n\n" + "\n".join(lineas))
-
-
-# ---------- Ajustes del grupo ----------
-
-CASTIGOS = ["ban", "kick", "mute"]
-NOMBRE_CASTIGO = {"ban": "🚫 Ban", "kick": "🌀 Kick", "mute": "🔇 Mute"}
-
-
-def texto_ajustes(titulo_grupo: str, a: dict) -> str:
-    flood = a["antiflood"]
-    return tarjeta(
-        f"⚙️ Ajustes de {escape(titulo_grupo)}",
-        f"👋 Bienvenida: {si_no(a['bienvenida']['on'])}\n"
-        f"🚪 Despedida: {si_no(a['despedida']['on'])}\n"
-        f"🧩 Captcha anti-bots: {si_no(a['captcha']['on'])}\n"
-        f"🌊 Antiflood: {si_no(flood['on'])} ({flood['mensajes']} mensajes en {flood['segundos']}s)\n"
-        f"🔗 Antilink: {si_no(a['antilink'])}\n"
-        f"⚠️ Advertencias: límite {a['warn_limite']} → {NOMBRE_CASTIGO[a['warn_castigo']]}\n"
-        f"🤖 IA en el grupo: {si_no(a['ia'])}\n"
-        f"🚫 Palabras prohibidas: {len(a['palabras'])} · Stickers/GIF bloqueados: {len(a['bloqueados'])}\n\n"
-        "<i>Toca un botón para cambiarlo.</i>",
-    )
-
-
-def teclado_ajustes(chat_id: int, a: dict) -> Teclado:
-    def b(texto, accion):
-        return Boton(texto, callback_data=f"cfg:{chat_id}:{accion}")
-
-    return Teclado([
-        [b(f"👋 Bienvenida {si_no(a['bienvenida']['on'])}", "bienvenida"),
-         b(f"🚪 Despedida {si_no(a['despedida']['on'])}", "despedida")],
-        [b(f"🧩 Captcha {si_no(a['captcha']['on'])}", "captcha"),
-         b(f"🔗 Antilink {si_no(a['antilink'])}", "antilink")],
-        [b(f"🌊 Antiflood {si_no(a['antiflood']['on'])}", "antiflood"),
-         b("➖", "flood-"), b(f"{a['antiflood']['mensajes']}", "nada"), b("➕", "flood+")],
-        [b("⚠️ Límite", "nada"), b("➖", "warn-"), b(f"{a['warn_limite']}", "nada"), b("➕", "warn+")],
-        [b(f"Castigo: {NOMBRE_CASTIGO[a['warn_castigo']]}", "castigo")],
-        [b(f"🤖 IA {si_no(a['ia'])}", "ia")],
-        [Boton("❌ Cerrar", callback_data="cerrar")],
-    ])
 
 
 # ---------- Advertencias ----------

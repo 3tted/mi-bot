@@ -86,19 +86,49 @@ BIENVENIDA = (
 )
 DESPEDIDA = "🌀 {nombre} cruzó el portal a la Zona Fantasma... ¡hasta pronto!"
 
+TIPOS_MEDIA = ["foto", "video", "sticker", "gif", "audio", "voz", "videonota", "documento",
+               "encuesta", "contacto", "ubicacion", "dado"]
+
+# Las acciones automáticas usan siempre estos valores: "off", "borrar", "warn", "mute", "kick", "ban"
 AJUSTES_POR_DEFECTO = {
     "reglas": "",
-    "bienvenida": {"on": True, "texto": BIENVENIDA},
+    "bienvenida": {"on": True, "texto": BIENVENIDA, "borrar_anterior": False, "autoborrar": 0, "ultimo_id": None},
     "despedida": {"on": False, "texto": DESPEDIDA},
-    "captcha": {"on": False, "minutos": 5},
-    "antiflood": {"on": True, "mensajes": 5, "segundos": 4},
-    "antilink": False,
+    "captcha": {"on": False, "minutos": 5, "modo": "boton", "fallo": "kick"},
+    "antiflood": {"on": True, "mensajes": 5, "segundos": 4, "accion": "mute", "borrar": True},
+    "antispam": {"telegram": "off", "reenvios_canal": "off", "enlaces": "off"},
+    "alfabetos": {"arabe": "off", "cirilico": "off", "chino": "off", "latino": "off"},
+    "reportes": {"on": True, "destino": "grupo"},
+    "bloqueos": {"bots": False, "reenvios": "off", "via_bot": "off"},
+    "multimedia": {tipo: "off" for tipo in TIPOS_MEDIA},
+    "antiporno": {"on": False, "accion": "ban"},
     "warn_limite": 3,
     "warn_castigo": "ban",
-    "ia": True,
-    "alias": {},
-    "bloqueados": [],
+    "warn_dias": 0,
+    "nocturno": {"on": False, "inicio": 23, "fin": 7, "modo": "silencio", "zona": "America/Puerto_Rico", "avisado": None},
+    "etiqueta": {"on": True, "quien": "admins"},
+    "enlace": {"personalizado": ""},
+    "guardian": {"on": False, "accion": "borrar", "primeros": 5},
+    "aprobacion": {"modo": "off"},
+    "eliminar": {"entradas": False, "salidas": False, "fijados": False, "comandos": False, "bot_min": 0},
+    "temas": {"avisos": None},
     "palabras": [],
+    "palabras_castigo": "borrar",
+    "recurrentes": [],
+    "miembros": {"sin_username": "off", "sin_foto": "off"},
+    "enmascarados": {"accion": "off", "permitir_vinculado": True},
+    "discusion": {"desfijar": False, "borrar": False},
+    "alias": {},
+    "alias_solo_admins": False,
+    "magicos": {},
+    "longitud": {"max": 0, "min": 0, "accion": "borrar"},
+    "permisos": {"rules": True, "staff": True, "link": True, "top10": True, "ia": True, "me": True,
+                 "report": True, "game": True},
+    "registro": {"on": False, "chat_id": None},
+    "filtros": {},
+    "filtros_on": True,
+    "ia": True,
+    "bloqueados": [],
     "silencio_previo": None,
 }
 
@@ -125,6 +155,9 @@ def ajustes(chat_id: int) -> dict:
                     datos[clave].update(valor)
                 else:
                     datos[clave] = valor
+        # Versiones anteriores tenían un "antilink" sí/no; ahora vive dentro de antispam
+        if datos.pop("antilink", False) and datos["antispam"]["enlaces"] == "off":
+            datos["antispam"]["enlaces"] = "borrar"
         _cache_chats[chat_id] = datos
     return copy.deepcopy(_cache_chats[chat_id])
 
@@ -331,3 +364,19 @@ def totales() -> dict:
             "usuarios": con.execute(select(func.count()).select_from(usuarios)).scalar(),
             "mensajes": con.execute(select(func.coalesce(func.sum(miembros.c.msgs), 0))).scalar(),
         }
+
+
+def chats_con_ajustes() -> list[int]:
+    """IDs de todos los grupos que tienen ajustes guardados."""
+    with engine.connect() as con:
+        return list(con.execute(select(chats.c.chat_id)).scalars().all())
+
+
+def ids_miembros(chat_id: int) -> list[int]:
+    with engine.connect() as con:
+        return list(con.execute(select(miembros.c.user_id).where(miembros.c.chat_id == chat_id)).scalars().all())
+
+
+def mensajes_de(chat_id: int, user_id: int) -> int:
+    """Mensajes de una persona en un grupo, contando los que aún no se guardaron."""
+    return miembro(chat_id, user_id)["msgs"] + _mensajes_pendientes.get((chat_id, user_id), 0)

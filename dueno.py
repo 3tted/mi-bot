@@ -247,7 +247,7 @@ async def texto_grupo(bot, chat_id: int) -> tuple[str, Teclado]:
         f"<b>💬 Actividad</b>\n  {personas} personas han escrito · {mensajes} mensajes\n"
         + ("<b>📊 Más activos</b>\n" + "\n".join(activos) + "\n" if activos else "")
         + f"\n<b>⚙️ Protecciones</b>\n  Captcha {ui.si_no(a['captcha']['on'])} · "
-        f"Antiflood {ui.si_no(a['antiflood']['on'])} · Antilink {ui.si_no(a['antilink'])}",
+        f"Antiflood {ui.si_no(a['antiflood']['on'])} · Antispam {ui.si_no(a['antispam']['enlaces'] != 'off' or a['antispam']['telegram'] != 'off')}",
     )
     teclado = Teclado([
         [Boton("🔄 Actualizar", callback_data=f"own:g:{chat_id}"),

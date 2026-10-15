@@ -1,4 +1,5 @@
 """Respuestas con Google Gemini."""
+import base64
 import logging
 import os
 
@@ -40,3 +41,37 @@ async def traducir(texto: str, idioma: str) -> str:
         "sin comentarios ni comillas."
     )
     return await preguntar(texto, sistema, max_tokens=1000)
+
+
+async def _si_o_no(entrada, sistema: str) -> bool:
+    """Pregunta de sí/no para moderar. Ante cualquier error responde False (no castigar)."""
+    try:
+        respuesta = await _cliente.aio.interactions.create(
+            model=MODELO,
+            system_instruction=sistema,
+            input=entrada,
+            generation_config={"thinking_level": "minimal", "max_output_tokens": 5, "temperature": 0},
+        )
+        return (respuesta.output_text or "").strip().upper().replace("Í", "I").startswith("SI")
+    except Exception as e:
+        logging.error(f"Error de Gemini moderando: {e}")
+        return False
+
+
+async def es_imagen_sexual(imagen: bytes, mime: str = "image/jpeg") -> bool:
+    sistema = ("Eres un moderador de contenido. Responde solo SI o NO: ¿la imagen contiene desnudos, "
+               "actos sexuales o pornografía explícita?")
+    entrada = [
+        {"type": "text", "text": "¿Contenido sexual explícito? Responde SI o NO."},
+        {"type": "image", "data": base64.b64encode(imagen).decode(), "mime_type": mime},
+    ]
+    return await _si_o_no(entrada, sistema)
+
+
+async def es_mensaje_peligroso(texto: str) -> bool:
+    sistema = (
+        "Eres el moderador de un grupo de Telegram. Responde solo SI o NO: ¿el mensaje es spam, "
+        "estafa, phishing, publicidad no pedida, promesas de dinero fácil o inversiones/criptomonedas, "
+        "venta de cuentas o contenido sexual, o un insulto o amenaza grave? Una conversación normal es NO."
+    )
+    return await _si_o_no(texto[:2000], sistema)

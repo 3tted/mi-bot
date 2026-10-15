@@ -11,9 +11,11 @@ from telegram.constants import ChatMemberStatus, ChatType
 from telegram.ext import ContextTypes
 from telegram.helpers import mention_html
 
+import ajustes_menu
 import db
 import ia
 import ui
+from castigos import borrar_mensaje_luego, programar_borrado, registrar
 from permisos import (
     NIVELES, NOMBRES_ROL, Aviso, Objetivo, duracion, es_staff, nivel, objetivo, objetivos_multiples,
     olvidar_staff, rol_de, staff, texto_duracion,
@@ -48,7 +50,12 @@ class Peticion:
         return self.context.bot
 
     async def responder(self, texto: str, **kwargs):
-        return await self.msg.reply_text(texto, **kwargs)
+        enviado = await self.msg.reply_text(texto, **kwargs)
+        if self.chat.type != ChatType.PRIVATE:
+            # Eliminación de mensajes: borrar mis respuestas después de X minutos
+            programar_borrado(self.context, self.chat.id, enviado.message_id,
+                              db.ajustes(self.chat.id)["eliminar"]["bot_min"] * 60)
+        return enviado
 
     def respondido(self):
         respuesta = self.msg.reply_to_message
@@ -67,6 +74,13 @@ class Comando:
 
 COMANDOS: dict[str, Comando] = {}
 
+# Comandos que un admin puede prohibir a los miembros normales (sección Permisos)
+PERMISO_DE = {
+    "rules": "rules", "reglas": "rules", "staff": "staff", "link": "link", "top10": "top10", "top": "top10",
+    "ia": "ia", "ai": "ia", "pregunta": "ia", "traducir": "ia", "translate": "ia", "trad": "ia",
+    "me": "me", "report": "report", "game": "game", "juegos": "game", "slot": "game",
+}
+
 
 def comando(*nombres, rol=None, extra=(), solo_grupo=True):
     def registrar(funcion):
@@ -82,14 +96,22 @@ async def ejecutar(update: Update, context: ContextTypes.DEFAULT_TYPE, nombre: s
     if cmd.solo_grupo and p.chat.type == ChatType.PRIVATE:
         await p.responder("👥 Este comando funciona dentro de un grupo.")
         return
-    if cmd.rol:
-        rol = await rol_de(update, context)
-        if nivel(rol) < NIVELES[cmd.rol] and rol not in cmd.extra:
-            return  # Igual que Group Help: los comandos de staff se ignoran si no tienes permiso
+    en_grupo = p.chat.type != ChatType.PRIVATE
+    rol = await rol_de(update, context) if en_grupo else None
+    if cmd.rol and nivel(rol) < NIVELES[cmd.rol] and rol not in cmd.extra:
+        return  # Igual que Group Help: los comandos de staff se ignoran si no tienes permiso
+    a = db.ajustes(p.chat.id) if en_grupo else None
+    if en_grupo and nombre in PERMISO_DE and not a["permisos"][PERMISO_DE[nombre]] and not es_staff(rol):
+        return  # Un admin lo desactivó para los miembros normales
     try:
         await cmd.funcion(p)
     except Aviso as aviso:
         await p.responder(str(aviso))
+    if en_grupo and a["eliminar"]["comandos"]:
+        try:
+            await p.msg.delete()
+        except Exception:
+            pass
 
 
 def firma(p: Peticion, motivo: str = "") -> str:
@@ -171,7 +193,9 @@ async def moderar(p: Peticion, accion: str, borrar: bool = False):
         texto = await advertir(p, obj, motivo)
         await p.responder(texto, reply_markup=ui.teclado_warns(p.chat.id, obj.id))
     else:
-        await p.responder(f"{await aplicar(p, obj, accion, segundos)}\n{firma(p, motivo)}")
+        texto = f"{await aplicar(p, obj, accion, segundos)}\n{firma(p, motivo)}"
+        await p.responder(texto)
+    await registrar(p.bot, p.chat, texto)
 
 
 async def moderar_varios(p: Peticion, accion: str):
@@ -193,6 +217,7 @@ async def moderar_varios(p: Peticion, accion: str):
     if fallos:
         texto += "\n\n<b>❌ No se pudo:</b>\n" + "\n".join(f"• {f}" for f in fallos)
     await p.responder(f"{texto}\n{firma(p)}")
+    await registrar(p.bot, p.chat, f"{texto}\n{firma(p)}")
 
 
 def _registrar_moderacion():
@@ -354,14 +379,6 @@ async def delallgo(p: Peticion):
     p.context.job_queue.run_once(borrar_mensaje_luego, 10, data=(p.chat.id, aviso.message_id))
 
 
-async def borrar_mensaje_luego(context: ContextTypes.DEFAULT_TYPE):
-    chat_id, mensaje_id = context.job.data
-    try:
-        await context.bot.delete_message(chat_id, mensaje_id)
-    except Exception:
-        pass
-
-
 @comando("block", "unblock", rol="admin")
 async def bloquear(p: Peticion):
     respondido = p.respondido()
@@ -496,14 +513,13 @@ async def geturl(p: Peticion):
 
 @comando("settings", "config", rol="admin")
 async def settings(p: Peticion):
-    a = db.ajustes(p.chat.id)
-    await p.responder(ui.texto_ajustes(p.chat.title, a), reply_markup=ui.teclado_ajustes(p.chat.id, a))
+    await p.responder(ajustes_menu.texto_menu(p.chat.title), reply_markup=ajustes_menu.teclado_menu(p.chat.id, 0))
 
 
 @comando("pvtsettings", "pvtconfig", rol="admin")
 async def pvtsettings(p: Peticion):
-    a = db.ajustes(p.chat.id)
-    await enviar_privado(p, ui.texto_ajustes(p.chat.title, a), reply_markup=ui.teclado_ajustes(p.chat.id, a))
+    await enviar_privado(p, ajustes_menu.texto_menu(p.chat.title),
+                         reply_markup=ajustes_menu.teclado_menu(p.chat.id, 0))
     await p.responder("📬 Te envié los ajustes por privado.")
 
 
@@ -666,7 +682,8 @@ async def chatid(p: Peticion):
 @comando("link")
 async def link(p: Peticion):
     chat = await p.bot.get_chat(p.chat.id)
-    enlace = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else None)
+    enlace = db.ajustes(p.chat.id)["enlace"]["personalizado"] or chat.invite_link or (
+        f"https://t.me/{chat.username}" if chat.username else None)
     if not enlace:
         enlace = await p.bot.export_chat_invite_link(p.chat.id)
     await p.responder(f"🔗 Enlace de <b>{escape(chat.title)}</b>:\n{enlace}")
@@ -824,13 +841,30 @@ async def report(p: Peticion):
 
 async def avisar_staff(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+    config = db.ajustes(chat.id)["reportes"]
+    if not config["on"]:
+        return
     roles = await staff(context.bot, chat.id)
     admins = [uid for uid, rol in roles.items() if nivel(rol) >= NIVELES["mod"]]
-    menciones = "".join(mention_html(uid, "​") for uid in admins)
     respuesta = update.message.reply_to_message
     sobre = f" sobre {mention_html(respuesta.from_user.id, respuesta.from_user.full_name)}" if (
         respuesta and respuesta.from_user and not respuesta.forum_topic_created) else ""
-    await update.message.reply_text(f"🚨 <b>¡Llamando al staff!</b> Hay un reporte{sobre}.{menciones}")
+    if config["destino"] in ("grupo", "ambos"):
+        menciones = "".join(mention_html(uid, "​") for uid in admins)
+        await update.message.reply_text(f"🚨 <b>¡Llamando al staff!</b> Hay un reporte{sobre}.{menciones}")
+    if config["destino"] in ("privado", "ambos"):
+        enlace = enlace_mensaje(chat, (respuesta or update.message).message_id)
+        quien = update.effective_user
+        texto = (f"🚨 <b>Reporte en {escape(chat.title)}</b>{sobre}\n"
+                 f"👤 Lo hizo: {mention_html(quien.id, quien.full_name)}\n"
+                 f"🔗 <a href=\"{enlace}\">Ver mensaje</a>")
+        for uid in admins:
+            try:
+                await context.bot.send_message(uid, texto)
+            except Exception:
+                pass
+        if config["destino"] == "privado":
+            await update.message.reply_text("🚨 Avisé al staff por privado.")
 
 
 @comando("ia", "ai", "pregunta", solo_grupo=False)

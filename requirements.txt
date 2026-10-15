@@ -2,3 +2,4 @@ python-telegram-bot[webhooks,job-queue]==22.8
 google-genai==2.31.0
 SQLAlchemy==2.1.4
 psycopg[binary]==3.3.6
+tzdata==2026.5

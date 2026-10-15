@@ -3,7 +3,7 @@ import logging
 import os
 import re
 
-from openai import AsyncOpenAI
+from google import genai
 from telegram import Update
 from telegram.constants import ChatMemberStatus, ChatType
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -15,9 +15,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 # Las claves se leen de variables de entorno (en Render: pestaña "Environment").
 # Nunca las escribas directamente en el código.
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
-ai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -83,21 +83,16 @@ async def responder_con_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        response = await ai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Eres un asistente de Telegram útil, atento y conciso.",
-                },
-                {"role": "user", "content": user_text},
-            ],
+        response = await ai_client.aio.interactions.create(
+            model="gemini-3.8-flash",
+            system_instruction="Eres un asistente de Telegram útil, atento y conciso.",
+            input=user_text,
         )
-        bot_response = response.choices[0].message.content
+        bot_response = response.output_text
         if not bot_response:
             bot_response = "No pude generar una respuesta. Inténtalo de nuevo."
     except Exception as e:
-        logging.error(f"Error con OpenAI: {e}")
+        logging.error(f"Error con Gemini: {e}")
         bot_response = (
             "Lo siento, tuve un problema interno al procesar tu respuesta. "
             "Inténtalo de nuevo."

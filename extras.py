@@ -77,6 +77,7 @@ def programar_todos(job_queue):
     for chat_id in db.chats_con_ajustes():
         for r in db.ajustes(chat_id)["recurrentes"]:
             programar_recurrente(job_queue, chat_id, r)
+        programar_sticker(job_queue, chat_id)
 
 
 @comando("recurrente", "recurring", rol="admin")
@@ -281,6 +282,7 @@ async def stickerpack(p: Peticion):
     a["stickers"]["packs"].append(pack)
     db.guardar_ajustes(p.chat.id, a)
     _cache_packs[pack] = (time.time(), list(conjunto.stickers))
+    programar_sticker(p.context.job_queue, p.chat.id)
     await p.responder(f"🐒 Agregué <b>{escape(conjunto.title)}</b> ({len(conjunto.stickers)} stickers). "
                       "Pídelos con /chango")
 
@@ -295,6 +297,7 @@ async def delpack(p: Peticion):
         raise Aviso("🔍 Ese pack no está agregado. Míralos con /packs")
     a["stickers"]["packs"].remove(pack)
     db.guardar_ajustes(p.chat.id, a)
+    programar_sticker(p.context.job_queue, p.chat.id)
     await p.responder(f"🗑️ Quité <code>{escape(pack)}</code>.")
 
 
@@ -324,3 +327,36 @@ async def sticker_automatico(update, context: ContextTypes.DEFAULT_TYPE):
     sticker = await sticker_al_azar(context.bot, update.effective_chat.id)
     if sticker:
         await update.message.reply_sticker(sticker.file_id)
+
+
+def programar_sticker(job_queue, chat_id: int):
+    """Stickers por tiempo: manda uno cada X minutos aunque nadie escriba."""
+    nombre = f"stk:{chat_id}"
+    for trabajo in job_queue.get_jobs_by_name(nombre):
+        trabajo.schedule_removal()
+    config = db.ajustes(chat_id)["stickers"]
+    if config["cada"] and config["packs"]:
+        segundos = config["cada"] * 60
+        job_queue.run_repeating(enviar_sticker_programado, interval=segundos, first=segundos,
+                                data=chat_id, name=nombre)
+
+
+async def enviar_sticker_programado(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = context.job.data
+    a = db.ajustes(chat_id)
+    if not a["stickers"]["cada"] or not a["stickers"]["packs"]:
+        context.job.schedule_removal()
+        return
+    from proteccion import es_de_noche
+    if a["nocturno"]["on"] and es_de_noche(a["nocturno"]):
+        return  # De noche no molestamos
+    sticker = await sticker_al_azar(context.bot, chat_id)
+    if not sticker:
+        return
+    tema = a["temas"]["avisos"]
+    try:
+        await context.bot.send_sticker(chat_id, sticker.file_id, **({"message_thread_id": tema} if tema else {}))
+    except Forbidden:
+        context.job.schedule_removal()  # Ya no estoy en ese chat
+    except BadRequest:
+        pass

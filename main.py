@@ -110,8 +110,8 @@ async def procesar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await context.bot.send_chat_action(chat.id, "typing")
         await mensaje.reply_text(await ia.preguntar(pregunta), parse_mode=None)
-    elif en_grupo:
-        await proteccion.responder_filtro(update, context)
+    elif en_grupo and not await proteccion.responder_filtro(update, context):
+        await extras.sticker_automatico(update, context)
 
 
 # =====================================================================

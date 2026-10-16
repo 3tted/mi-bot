@@ -221,7 +221,12 @@ SECCIONES: dict[str, Seccion] = {
          I(("enmascarados", "permitir_vinculado"), "Permitir el canal vinculado")]),
     "permisos": Seccion("✍️ Permisos", "✍️ Permisos",
         "Qué comandos pueden usar los miembros normales. El staff siempre puede usarlos todos.",
-        [I(("permisos", c), f"/{c}") for c in ("rules", "staff", "link", "top10", "ia", "me", "report", "game")]),
+        [I(("permisos", c), f"/{c}") for c in ("rules", "staff", "link", "top10", "ia", "me", "report", "game", "sticker")]),
+    "stickers": Seccion("🐒 Stickers", "🐒 Stickers", lambda a: (
+        f"Packs: {_lista(a['stickers']['packs'])}\n\n"
+        "Cualquiera puede pedir uno con <code>/chango</code> (o <code>/chango 😂</code> para un emoji).\n"
+        "✏️ <code>/stickerpack nombre</code> · <code>/delpack nombre</code> · <code>/packs</code>"),
+        [N(("stickers", "auto"), "Mandar solos", 0, 50, paso=5, sufijo="% de mensajes", cero="apagado")]),
     "registro": Seccion("🔍 Canal de registro", "🔍 Canal de registro", lambda a: (
         f"Canal actual: {('<code>' + str(a['registro']['chat_id']) + '</code>') if a['registro']['chat_id'] else 'ninguno'}\n\n"
         "1. Añádeme como admin a un canal o grupo privado.\n"
@@ -235,7 +240,7 @@ PAGINAS = [
      ["reportes", "bloqueos"], ["multimedia", "antiporno"], ["advertencias", "nocturno"], ["etiqueta", "enlace"],
      ["guardian"], ["aprobacion"], ["eliminacion"]],
     [["temas"], ["palabras"], ["recurrentes"], ["miembros"], ["enmascarados"], ["discusion"], ["personales"],
-     ["magicos"], ["longitud"], ["canales"], ["permisos", "registro"]],
+     ["magicos"], ["longitud"], ["canales"], ["stickers"], ["permisos", "registro"]],
 ]
 
 

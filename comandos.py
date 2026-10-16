@@ -79,6 +79,7 @@ PERMISO_DE = {
     "rules": "rules", "reglas": "rules", "staff": "staff", "link": "link", "top10": "top10", "top": "top10",
     "ia": "ia", "ai": "ia", "pregunta": "ia", "traducir": "ia", "translate": "ia", "trad": "ia",
     "me": "me", "report": "report", "game": "game", "juegos": "game", "slot": "game",
+    "chango": "sticker", "sticker": "sticker", "mono": "sticker",
 }
 
 

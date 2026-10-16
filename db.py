@@ -86,6 +86,13 @@ privados = Table(
     Column("ultima_vez", BigInteger),
 )
 
+# Quién ha entrado alguna vez a cada grupo (para la bienvenida "solo 1ª entrada")
+entradas_vistas = Table(
+    "entradas_vistas", metadata,
+    Column("chat_id", BigInteger, primary_key=True),
+    Column("user_id", BigInteger, primary_key=True),
+)
+
 metadata.create_all(engine)
 
 BIENVENIDA = (
@@ -93,19 +100,41 @@ BIENVENIDA = (
     "Esta zona está protegida por Danny Phantom. Lee las reglas con /rules 💚"
 )
 DESPEDIDA = "🌀 {nombre} cruzó el portal a la Zona Fantasma... ¡hasta pronto!"
+# Textos por defecto en HTML (formato nuevo de mensajes personalizados)
+BIENVENIDA_HTML = ("👻 ¡Bienvenid@ {MENTION} a <b>{GROUPNAME}</b>!\n"
+                   "Esta zona está protegida por Danny Phantom. Lee las reglas con /rules 💚")
+DESPEDIDA_HTML = "🌀 {MENTION} cruzó el portal a la Zona Fantasma... ¡hasta pronto!"
+
+
+def castigo_base(accion: str = "off", borrar: bool = False) -> dict:
+    """Castigo al estilo Group Help (ver castigos.py)."""
+    return {"accion": accion, "borrar": borrar, "dur_mute": 1800, "dur_ban": 0}
+
+
+def mensaje_base(texto: str = "") -> dict:
+    return {"texto": texto, "media": None, "botones": ""}
 
 TIPOS_MEDIA = ["foto", "video", "sticker", "gif", "audio", "voz", "videonota", "documento",
                "encuesta", "contacto", "ubicacion", "dado"]
 
 # Las acciones automáticas usan siempre estos valores: "off", "borrar", "warn", "mute", "kick", "ban"
 AJUSTES_POR_DEFECTO = {
-    "reglas": "",
-    "bienvenida": {"on": True, "texto": BIENVENIDA, "borrar_anterior": False, "autoborrar": 0, "ultimo_id": None},
-    "despedida": {"on": False, "texto": DESPEDIDA},
-    "captcha": {"on": False, "minutos": 5, "modo": "boton", "fallo": "kick"},
-    "antiflood": {"on": True, "mensajes": 5, "segundos": 4, "accion": "mute", "borrar": True},
-    "antispam": {"telegram": "off", "reenvios_canal": "off", "enlaces": "off"},
-    "alfabetos": {"arabe": "off", "cirilico": "off", "chino": "off", "latino": "off"},
+    "reglas_msg": mensaje_base(),
+    "bienvenida": {"on": False, "modo": "siempre", "mensaje": mensaje_base(BIENVENIDA_HTML), "borrar_ultimo": False,
+                   "ultimo_id": None, "autoborrar": 0},
+    "despedida": {"on": False, "mensaje": mensaje_base(DESPEDIDA_HTML), "privado": False, "borrar_ultimo": False,
+                  "ultimo_id": None},
+    "captcha": {"on": False, "modo": "boton", "tiempo": 180, "castigo": "mute", "borrar_servicio": False,
+                "mensaje": mensaje_base()},
+    "antiflood": {"mensajes": 5, "segundos": 3, "castigo": castigo_base("off", True)},
+    "antispam": {
+        "telegram": {**castigo_base(), "usernames": False, "bots": False},
+        "reenvio": {o: castigo_base() for o in ("canales", "grupos", "usuarios", "bots")},
+        "citas": {o: castigo_base() for o in ("canales", "grupos", "usuarios", "bots")},
+        "enlaces": castigo_base(),
+        "excepciones": [],
+    },
+    "alfabetos": {k: castigo_base() for k in ("arabe", "cirilico", "chino", "latino", "hindi", "bengali")},
     "reportes": {"on": True, "destino": "grupo"},
     "bloqueos": {"bots": False, "reenvios": "off", "via_bot": "off"},
     "multimedia": {tipo: "off" for tipo in TIPOS_MEDIA},
@@ -159,16 +188,70 @@ def ajustes(chat_id: int) -> dict:
             fila = con.execute(select(chats.c.data).where(chats.c.chat_id == chat_id)).first()
         datos = copy.deepcopy(AJUSTES_POR_DEFECTO)
         if fila:
-            for clave, valor in json.loads(fila.data).items():
-                if isinstance(valor, dict) and isinstance(datos.get(clave), dict):
-                    datos[clave].update(valor)
-                else:
-                    datos[clave] = valor
-        # Versiones anteriores tenían un "antilink" sí/no; ahora vive dentro de antispam
-        if datos.pop("antilink", False) and datos["antispam"]["enlaces"] == "off":
-            datos["antispam"]["enlaces"] = "borrar"
+            _fusionar(datos, _migrar(json.loads(fila.data)))
         _cache_chats[chat_id] = datos
     return copy.deepcopy(_cache_chats[chat_id])
+
+
+def _fusionar(base: dict, extra: dict):
+    """Mezcla en profundidad: lo guardado pisa a lo de por defecto, sin perder claves nuevas."""
+    for clave, valor in extra.items():
+        if isinstance(valor, dict) and isinstance(base.get(clave), dict):
+            _fusionar(base[clave], valor)
+        else:
+            base[clave] = valor
+
+
+def _desde_accion(accion) -> dict:
+    """Formato viejo ("off", "borrar", "warn"...) → castigo nuevo."""
+    if accion == "borrar":
+        return castigo_base("off", True)
+    if accion in ("warn", "mute", "kick", "ban"):
+        return castigo_base(accion, True)
+    return castigo_base()
+
+
+def _migrar(g: dict) -> dict:
+    """Convierte ajustes guardados con versiones anteriores al formato actual (estilo Group Help)."""
+    from html import escape
+    antilink = g.pop("antilink", False)
+    if isinstance(g.get("reglas"), str):
+        texto = g.pop("reglas")
+        if texto and not g.get("reglas_msg"):
+            g["reglas_msg"] = mensaje_base(escape(texto))
+    for clave, viejo, nuevo in (("bienvenida", BIENVENIDA, BIENVENIDA_HTML), ("despedida", DESPEDIDA, DESPEDIDA_HTML)):
+        sec = g.get(clave)
+        if isinstance(sec, dict) and "texto" in sec:
+            texto = sec.pop("texto")
+            sec["mensaje"] = mensaje_base(nuevo if texto == viejo else escape(texto or ""))
+            if "borrar_anterior" in sec:
+                sec["borrar_ultimo"] = sec.pop("borrar_anterior")
+    cap = g.get("captcha")
+    if isinstance(cap, dict) and "minutos" in cap:
+        cap["tiempo"] = cap.pop("minutos") * 60
+        cap["modo"] = {"mates": "matematicas"}.get(cap.get("modo"), cap.get("modo", "boton"))
+        cap["castigo"] = cap.pop("fallo", "mute")
+    flood = g.get("antiflood")
+    if isinstance(flood, dict) and "accion" in flood:
+        encendido = flood.pop("on", True)
+        accion, borrar = flood.pop("accion"), flood.pop("borrar", True)
+        flood["castigo"] = castigo_base("off", False) if not encendido else (
+            castigo_base("off", True) if accion == "borrar" else castigo_base(accion, borrar))
+    spam = g.get("antispam")
+    if isinstance(spam, dict) and isinstance(spam.get("telegram"), str):
+        g["antispam"] = {
+            "telegram": {**_desde_accion(spam.get("telegram")), "usernames": False, "bots": False},
+            "reenvio": {"canales": _desde_accion(spam.get("reenvios_canal"))},
+            "enlaces": _desde_accion(spam.get("enlaces")),
+        }
+    if antilink and g.get("antispam", {}).get("enlaces", {}).get("accion", "off") == "off":
+        g.setdefault("antispam", {})["enlaces"] = castigo_base("off", True)
+    alfa = g.get("alfabetos")
+    if isinstance(alfa, dict):
+        for k, v in list(alfa.items()):
+            if isinstance(v, str):
+                alfa[k] = _desde_accion(v)
+    return g
 
 
 def guardar_ajustes(chat_id: int, datos: dict):
@@ -389,3 +472,15 @@ def ids_miembros(chat_id: int) -> list[int]:
 def mensajes_de(chat_id: int, user_id: int) -> int:
     """Mensajes de una persona en un grupo, contando los que aún no se guardaron."""
     return miembro(chat_id, user_id)["msgs"] + _mensajes_pendientes.get((chat_id, user_id), 0)
+
+
+def ya_entro(chat_id: int, user_id: int) -> bool:
+    with engine.connect() as con:
+        return con.execute(select(entradas_vistas.c.user_id).where(
+            entradas_vistas.c.chat_id == chat_id, entradas_vistas.c.user_id == user_id)).first() is not None
+
+
+def marcar_entrada(chat_id: int, user_id: int):
+    insertar = pg_insert if engine.dialect.name == "postgresql" else sqlite_insert
+    with engine.begin() as con:
+        con.execute(insertar(entradas_vistas).values(chat_id=chat_id, user_id=user_id).on_conflict_do_nothing())

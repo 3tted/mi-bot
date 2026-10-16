@@ -13,6 +13,7 @@ from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes
 from telegram.helpers import mention_html
 
+import castigos
 import db
 import ui
 from comandos import Peticion, comando
@@ -247,7 +248,8 @@ async def texto_grupo(bot, chat_id: int) -> tuple[str, Teclado]:
         f"<b>💬 Actividad</b>\n  {personas} personas han escrito · {mensajes} mensajes\n"
         + ("<b>📊 Más activos</b>\n" + "\n".join(activos) + "\n" if activos else "")
         + f"\n<b>⚙️ Protecciones</b>\n  Captcha {ui.si_no(a['captcha']['on'])} · "
-        f"Antiflood {ui.si_no(a['antiflood']['on'])} · Antispam {ui.si_no(a['antispam']['enlaces'] != 'off' or a['antispam']['telegram'] != 'off')}",
+        f"Antiflood {ui.si_no(castigos.activo(a['antiflood']['castigo']))} · "
+        f"Antispam {ui.si_no(castigos.activo(a['antispam']['enlaces']) or castigos.activo(a['antispam']['telegram']))}",
     )
     teclado = Teclado([
         [Boton("🔄 Actualizar", callback_data=f"own:g:{chat_id}"),

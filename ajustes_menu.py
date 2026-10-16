@@ -75,44 +75,6 @@ def _recorte(texto: str, n: int = 300) -> str:
 
 
 SECCIONES: dict[str, Seccion] = {
-    "reglas": Seccion("📜 Reglamento", "📜 Reglamento", lambda a: (
-        f"Reglas actuales:\n<i>{_recorte(a['reglas']) or 'todavía no hay reglas'}</i>\n\n"
-        "✏️ Cámbialas con <code>/setrules texto</code>"),
-        [I(("permisos", "rules"), "Cualquiera puede usar /rules")]),
-    "antispam": Seccion("📨 Antispam", "📨 Antispam",
-        "Frena el spam más común. Elige qué hacer con cada tipo de mensaje.",
-        [A(("antispam", "telegram"), "Enlaces de Telegram"),
-         A(("antispam", "reenvios_canal"), "Reenvíos de canales"),
-         A(("antispam", "enlaces"), "Cualquier enlace")]),
-    "bienvenida": Seccion("💬 Bienvenida", "💬 Bienvenida", lambda a: (
-        f"Mensaje actual:\n<i>{_recorte(a['bienvenida']['texto'])}</i>\n\n"
-        "✏️ Cámbialo con <code>/setwelcome texto</code>\n"
-        "Variables: {nombre}, {usuario}, {id}, {grupo}"),
-        [I(("bienvenida", "on"), "Bienvenida"),
-         I(("bienvenida", "borrar_anterior"), "Borrar la bienvenida anterior"),
-         N(("bienvenida", "autoborrar"), "Borrar tras", 0, 60, sufijo=" min", cero="nunca")]),
-    "antiflood": Seccion("🗣️ Anti-flood", "🗣️ Anti-flood",
-        "Castiga a quien manda muchos mensajes seguidos en poco tiempo.",
-        [I(("antiflood", "on"), "Anti-flood"),
-         N(("antiflood", "mensajes"), "Mensajes", 2, 30),
-         N(("antiflood", "segundos"), "En segundos", 1, 60),
-         A(("antiflood", "accion"), "Castigo", SIN_OFF),
-         I(("antiflood", "borrar"), "Borrar los mensajes del flood")]),
-    "despedida": Seccion("👋 Despedida", "👋 Despedida", lambda a: (
-        f"Mensaje actual:\n<i>{_recorte(a['despedida']['texto'])}</i>\n\n"
-        "✏️ Cámbialo con <code>/setgoodbye texto</code>"),
-        [I(("despedida", "on"), "Despedida")]),
-    "alfabetos": Seccion("🕉️ Alfabetos", "🕉️ Alfabetos",
-        "Castiga los mensajes escritos con estos alfabetos (útil contra bots de spam extranjeros).",
-        [A(("alfabetos", "arabe"), "Árabe"), A(("alfabetos", "cirilico"), "Cirílico"),
-         A(("alfabetos", "chino"), "Chino"), A(("alfabetos", "latino"), "Latino")]),
-    "captcha": Seccion("🧠 Captcha", "🧠 Captcha",
-        "Los nuevos miembros quedan silenciados hasta demostrar que no son bots.",
-        [I(("captcha", "on"), "Captcha"),
-         N(("captcha", "minutos"), "Tiempo", 1, 30, sufijo=" min"),
-         O(("captcha", "modo"), "Tipo", [("boton", "👆 Botón"), ("mates", "🧮 Suma")]),
-         O(("captcha", "fallo"), "Si no lo resuelve", [("kick", "🌀 Expulsar"), ("ban", "👻 Banear"),
-                                                       ("mute", "🔇 Dejar silenciado")])]),
     "filtros": Seccion("🔦 Filtros", "🔦 Filtros (respuestas automáticas)", lambda a: (
         f"Palabras con respuesta: {_lista(sorted(a['filtros']))}\n\n"
         "✏️ <code>/filtro palabra respuesta</code> · <code>/unfiltro palabra</code>"),
@@ -213,12 +175,6 @@ SECCIONES: dict[str, Seccion] = {
         [N(("longitud", "max"), "Máximo", 0, 4000, paso=100, sufijo=" letras", cero="sin límite"),
          N(("longitud", "min"), "Mínimo", 0, 20, sufijo=" letras", cero="sin límite"),
          A(("longitud", "accion"), "Castigo", SIN_OFF)]),
-    "canales": Seccion("📢 Gestión de canales", "📢 Gestión de canales 🆕",
-        "Controla lo que llega al grupo desde canales.",
-        [A(("antispam", "reenvios_canal"), "Reenvíos de canales"),
-         O(("enmascarados", "accion"), "Escribir como canal", [("off", "❌ Permitido"), ("borrar", "🗑️ Borrar"),
-                                                              ("ban", "👻 Banear el canal")]),
-         I(("enmascarados", "permitir_vinculado"), "Permitir el canal vinculado")]),
     "permisos": Seccion("✍️ Permisos", "✍️ Permisos",
         "Qué comandos pueden usar los miembros normales. El staff siempre puede usarlos todos.",
         [I(("permisos", c), f"/{c}") for c in ("rules", "staff", "link", "top10", "ia", "me", "report", "game", "sticker")]),
@@ -236,11 +192,11 @@ SECCIONES: dict[str, Seccion] = {
 }
 
 PAGINAS = [
-    [["reglas", "antispam"], ["bienvenida", "antiflood"], ["despedida", "alfabetos"], ["captcha", "filtros"],
-     ["reportes", "bloqueos"], ["multimedia", "antiporno"], ["advertencias", "nocturno"], ["etiqueta", "enlace"],
-     ["guardian"], ["aprobacion"], ["eliminacion"]],
-    [["temas"], ["palabras"], ["recurrentes"], ["miembros"], ["enmascarados"], ["discusion"], ["personales"],
-     ["magicos"], ["longitud"], ["canales"], ["stickers"], ["permisos", "registro"]],
+    # Secciones que todavía usan este menú (las demás ya están en menu.py, igual que Group Help)
+    [["filtros", "reportes", "bloqueos", "multimedia", "antiporno", "advertencias", "nocturno", "etiqueta",
+      "enlace", "guardian", "aprobacion", "eliminacion"]],
+    [["temas", "palabras", "recurrentes", "miembros", "enmascarados", "discusion", "personales", "magicos",
+      "longitud", "stickers", "permisos", "registro"]],
 ]
 
 
@@ -334,15 +290,13 @@ def cambiar(a: dict, control: Control, operacion: str | None):
 # ---------- Dónde configurar: en el grupo o por privado ----------
 
 def texto_donde(titulo_grupo: str) -> str:
-    return (f"⚙️ <b>CONFIGURACIÓN</b>\n<b>Grupo:</b> {escape(titulo_grupo)}\n\n"
-            "<i>¿Dónde quieres abrir el menú de ajustes?</i>")
+    return "¿Dónde desea abrir el menú de configuración?"
 
 
 def teclado_donde(chat_id: int) -> Teclado:
     return Teclado([
-        [Boton("👥 Aquí en el grupo", callback_data=f"cfg:{chat_id}:m:0"),
-         Boton("👤 En privado", callback_data=f"cfg:{chat_id}:pvt")],
-        [Boton("❌ Cancelar", callback_data=f"cfg:{chat_id}:cerrar")],
+        [Boton("👥 Pincha aquí", callback_data=f"cfg:{chat_id}:m:0")],
+        [Boton("👤 Abrir en Privado", callback_data=f"cfg:{chat_id}:pvt")],
     ])
 
 
@@ -353,8 +307,9 @@ def enlace_inicio(usuario_bot: str, chat_id: int) -> str:
 
 async def enviar_menu_privado(bot, user_id: int, chat_id: int) -> bool:
     try:
-        await bot.send_message(user_id, texto_menu(await titulo_de(bot, chat_id)),
-                               reply_markup=teclado_menu(chat_id, 0))
+        import menu
+        await bot.send_message(user_id, menu.texto_pagina(await titulo_de(bot, chat_id)),
+                               reply_markup=menu.teclado_pagina(chat_id, 0))
         return True
     except (BadRequest, Forbidden):
         return False  # La persona todavía no ha abierto el chat conmigo
@@ -420,7 +375,8 @@ async def manejar(update: Update, context: ContextTypes.DEFAULT_TYPE, partes: li
     a = db.ajustes(chat_id)
     aviso = None
     if accion == "m":
-        texto, teclado = texto_menu(titulo), teclado_menu(chat_id, int(partes[2]))
+        import menu  # El menú principal ahora es el de Group Help
+        texto, teclado = menu.texto_pagina(titulo), menu.teclado_pagina(chat_id, int(partes[2]))
     elif accion == "s" and partes[2] in SECCIONES:
         texto, teclado = texto_seccion(titulo, partes[2], a), teclado_seccion(chat_id, partes[2], a)
     elif accion == "x" and partes[2] in SECCIONES:

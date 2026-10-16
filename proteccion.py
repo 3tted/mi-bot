@@ -7,23 +7,28 @@ from datetime import date, datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
-from telegram import MessageEntity, MessageOriginChannel, Update
+from telegram import MessageEntity, MessageOriginChannel, MessageOriginChat, MessageOriginUser, Update
 from telegram.error import BadRequest, Forbidden
 from telegram.ext import ContextTypes
 
+import castigos
 import db
 import ia
 from castigos import castigar, programar_borrado, registrar
 from permisos import NIVELES, nivel, rol_de
 
 ALFABETOS = {
-    "arabe": re.compile(r"[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]"),
-    "cirilico": re.compile(r"[Ѐ-ӿԀ-ԯ]"),
-    "chino": re.compile(r"[㐀-䶿一-鿿豈-﫿]"),
-    "latino": re.compile(r"[A-Za-zÀ-ɏ]"),
+    "arabe": re.compile("[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]"),
+    "cirilico": re.compile("[Ѐ-ӿԀ-ԯ]"),
+    "chino": re.compile("[㐀-䶿一-鿿豈-﫿]"),
+    "latino": re.compile("[A-Za-zÀ-ɏ]"),
+    "hindi": re.compile("[ऀ-ॿ]"),
+    "bengali": re.compile("[ঀ-৿]"),
 }
-NOMBRE_ALFABETO = {"arabe": "árabe", "cirilico": "cirílico", "chino": "chino", "latino": "latino"}
+NOMBRE_ALFABETO = {"arabe": "árabe", "cirilico": "cirílico", "chino": "chino", "latino": "latino",
+                   "hindi": "hindi", "bengali": "bengalí"}
 ENLACE_TELEGRAM = re.compile(r"(?:t\.me|telegram\.me|telegram\.dog)/|tg://", re.IGNORECASE)
+NOMBRE_TELEGRAM = re.compile(r"(?:t\.me|telegram\.me|telegram\.dog)/([\w+\-]+)", re.IGNORECASE)
 NOMBRE_MEDIA = {
     "foto": "Las fotos", "video": "Los videos", "sticker": "Los stickers", "gif": "Los GIFs",
     "audio": "Los audios", "voz": "Las notas de voz", "videonota": "Los videomensajes",
@@ -95,6 +100,98 @@ async def canal_vinculado(bot, chat_id: int) -> int | None:
         vinculado = None
     _canal_vinculado[chat_id] = (time.time(), vinculado)
     return vinculado
+
+
+_tipo_username: dict[str, tuple[float, str | None]] = {}
+
+
+def tipo_origen(origen) -> str:
+    """canales | grupos | usuarios | bots (como en el Antispam de Group Help)."""
+    if isinstance(origen, MessageOriginChannel):
+        return "canales"
+    if isinstance(origen, MessageOriginChat):
+        return "grupos"
+    if isinstance(origen, MessageOriginUser) and origen.sender_user.is_bot:
+        return "bots"
+    return "usuarios"
+
+
+def nombres_telegram(m) -> list[str]:
+    """Lo que va después de t.me/ en el mensaje (texto y enlaces ocultos)."""
+    textos = [m.text or m.caption or ""]
+    textos += [e.url or "" for e in list(m.entities) + list(m.caption_entities) if e.type == MessageEntity.TEXT_LINK]
+    return [n.lower() for t in textos for n in NOMBRE_TELEGRAM.findall(t)]
+
+
+def menciones(m) -> list[str]:
+    entidades = m.parse_entities([MessageEntity.MENTION]) if m.text else m.parse_caption_entities([MessageEntity.MENTION])
+    return [t.lstrip("@").lower() for t in entidades.values()]
+
+
+def exceptuado(nombre: str, excepciones: list, chat) -> bool:
+    nombre = nombre.lower()
+    if chat.username and nombre == chat.username.lower():
+        return True
+    return any(x in (nombre, f"@{nombre}", f"t.me/{nombre}", f"telegram.me/{nombre}") for x in excepciones)
+
+
+async def tipo_de_username(bot, nombre: str) -> str | None:
+    """'channel', 'group', 'supergroup' si @nombre es un chat público; None si es una persona o no existe."""
+    guardado = _tipo_username.get(nombre)
+    if guardado and time.time() - guardado[0] < 3600:
+        return guardado[1]
+    try:
+        tipo = (await bot.get_chat(f"@{nombre}")).type
+    except Exception:
+        tipo = None
+    _tipo_username[nombre] = (time.time(), tipo)
+    return tipo
+
+
+async def revisar_antispam(context, chat, usuario, mensaje, a) -> bool:
+    sp = a["antispam"]
+    # Reenvíos según de dónde vienen
+    if mensaje.forward_origin:
+        tipo = tipo_origen(mensaje.forward_origin)
+        if castigos.activo(sp["reenvio"][tipo]):
+            return await castigos.aplicar(context, chat, usuario, sp["reenvio"][tipo], "Reenvío no permitido", mensaje)
+    # Citas de chats externos
+    externa = getattr(mensaje, "external_reply", None)
+    if externa and externa.origin:
+        tipo = tipo_origen(externa.origin)
+        if castigos.activo(sp["citas"][tipo]):
+            return await castigos.aplicar(context, chat, usuario, sp["citas"][tipo], "Cita de un chat externo", mensaje)
+    # Enlaces de Telegram, @usernames y bots
+    tg = sp["telegram"]
+    if castigos.activo(tg):
+        spam = False
+        for nombre in nombres_telegram(mensaje):
+            if exceptuado(nombre, sp["excepciones"], chat):
+                continue
+            if nombre.endswith("bot") and not tg["bots"]:
+                continue
+            spam = True
+            break
+        if not spam and (tg["usernames"] or tg["bots"]):
+            for nombre in menciones(mensaje):
+                if exceptuado(nombre, sp["excepciones"], chat):
+                    continue
+                if nombre.endswith("bot"):
+                    spam = tg["bots"]
+                elif tg["usernames"]:
+                    spam = await tipo_de_username(context.bot, nombre) in ("channel", "group", "supergroup")
+                if spam:
+                    break
+        if spam:
+            return await castigos.aplicar(context, chat, usuario, tg, "Enlaces de Telegram no permitidos", mensaje)
+    # Cualquier enlace
+    if castigos.activo(sp["enlaces"]) and tiene_enlace(mensaje):
+        nombres = nombres_telegram(mensaje)
+        solo_excepciones = nombres and all(exceptuado(n, sp["excepciones"], chat) for n in nombres) and \
+            not re.search(r"https?://(?!t\.me)", mensaje.text or mensaje.caption or "")
+        if not solo_excepciones:
+            return await castigos.aplicar(context, chat, usuario, sp["enlaces"], "Enlaces no permitidos", mensaje)
+    return False
 
 
 async def _borrar(mensaje):
@@ -169,8 +266,6 @@ async def revisar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
     # Reenvíos y bots inline
     if mensaje.forward_origin:
-        if isinstance(mensaje.forward_origin, MessageOriginChannel) and a["antispam"]["reenvios_canal"] != "off":
-            return await castigar(context, chat, usuario, a["antispam"]["reenvios_canal"], "Reenvío de canal", mensaje)
         if a["bloqueos"]["reenvios"] != "off":
             return await castigar(context, chat, usuario, a["bloqueos"]["reenvios"], "Mensaje reenviado", mensaje)
     if mensaje.via_bot and a["bloqueos"]["via_bot"] != "off":
@@ -183,17 +278,15 @@ async def revisar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if any(re.search(rf"(?<!\w){re.escape(p)}(?!\w)", minusculas) for p in a["palabras"]):
         return await castigar(context, chat, usuario, a["palabras_castigo"], "Palabra prohibida", mensaje)
 
-    # Antispam de enlaces
-    if a["antispam"]["telegram"] != "off" and enlaces_de_telegram(mensaje):
-        return await castigar(context, chat, usuario, a["antispam"]["telegram"], "Enlaces de Telegram no permitidos", mensaje)
-    if a["antispam"]["enlaces"] != "off" and tiene_enlace(mensaje):
-        return await castigar(context, chat, usuario, a["antispam"]["enlaces"], "Enlaces no permitidos", mensaje)
+    # Antispam (Telegram, Reenvío, Citas, General de internet)
+    if await revisar_antispam(context, chat, usuario, mensaje, a):
+        return True
 
     # Alfabetos
     for clave, patron in ALFABETOS.items():
-        if a["alfabetos"][clave] != "off" and patron.search(texto):
-            return await castigar(context, chat, usuario, a["alfabetos"][clave],
-                                  f"Alfabeto {NOMBRE_ALFABETO[clave]} no permitido", mensaje)
+        if castigos.activo(a["alfabetos"][clave]) and patron.search(texto):
+            return await castigos.aplicar(context, chat, usuario, a["alfabetos"][clave],
+                                          f"Alfabeto {NOMBRE_ALFABETO[clave]} no permitido", mensaje)
 
     # Longitud
     lon = a["longitud"]
@@ -203,7 +296,8 @@ async def revisar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
     # Anti-flood
     flood = a["antiflood"]
-    if flood["on"]:
+    cfg_flood = flood["castigo"]
+    if castigos.activo(cfg_flood):
         ahora = time.time()
         historial = _flood[(chat.id, usuario.id)]
         historial.append((ahora, mensaje.message_id))
@@ -212,13 +306,14 @@ async def revisar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         if len(historial) > flood["mensajes"]:
             ids = [i for _, i in historial]
             historial.clear()
-            if flood["borrar"]:
+            if cfg_flood["borrar"]:
                 try:
                     await context.bot.delete_messages(chat.id, ids)
                 except (BadRequest, Forbidden):
                     pass
-            await castigar(context, chat, usuario, flood["accion"], "Flood (demasiados mensajes seguidos)",
-                           None, segundos_mute=600)
+            if cfg_flood["accion"] != "off":
+                await castigar(context, chat, usuario, cfg_flood["accion"], "Flood (demasiados mensajes seguidos)",
+                               None, segundos_mute=cfg_flood["dur_mute"], segundos_ban=cfg_flood["dur_ban"])
             return True
 
     # Bot Guardián (IA) en los primeros mensajes de cada persona

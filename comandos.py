@@ -545,54 +545,83 @@ def _texto_o_respondido(p: Peticion) -> str:
     return ""
 
 
+def _html_o_respondido(p: Peticion) -> str:
+    """El texto después del comando conservando el formato (negrita, enlaces...), o el del mensaje respondido."""
+    if p.texto:
+        html = p.msg.text_html or ""
+        partes = html.split(None, 1)
+        return partes[1] if len(partes) > 1 else ""
+    respondido = p.respondido()
+    if respondido and (respondido.text or respondido.caption):
+        return respondido.text_html if respondido.text else respondido.caption_html
+    return ""
+
+
 @comando("setrules", rol="admin")
 async def setrules(p: Peticion):
-    texto = _texto_o_respondido(p)
-    if not texto:
-        raise Aviso("📜 Escribe las reglas: /setrules 1. Respeto... (o responde a un mensaje con ellas)")
+    html = _html_o_respondido(p)
+    if not html:
+        raise Aviso("📜 Escribe las reglas: /setrules 1. Respeto... (o responde a un mensaje con ellas). "
+                    "También puedes hacerlo en /settings ➜ 📜 Reglamento ➜ Personalizar mensaje.")
     a = db.ajustes(p.chat.id)
-    a["reglas"] = texto
+    a["reglas_msg"]["texto"] = html
     db.guardar_ajustes(p.chat.id, a)
     await p.responder("📜 ¡Reglas guardadas! Se ven con /rules")
 
 
+def parte_de_reglas(html: str, argumento: str) -> str:
+    """/rules 1 · /rules spam: solo la línea o párrafo relacionado, como en Group Help."""
+    import re
+    parrafos = [x for x in re.split(r"\n\s*\n", html) if x.strip()]
+    lineas = [x for x in html.splitlines() if x.strip()]
+    arg = argumento.strip().lower()
+    if arg.isdigit():
+        for linea in lineas:
+            limpio = re.sub(r"<[^>]+>", "", linea).strip()
+            if re.match(rf"^{arg}\s*[.)\-:]", limpio):
+                return linea
+        n = int(arg)
+        if 1 <= n <= len(parrafos):
+            return parrafos[n - 1]
+        return ""
+    for bloque in parrafos + lineas:
+        if arg in re.sub(r"<[^>]+>", "", bloque).lower():
+            return bloque
+    return ""
+
+
 @comando("rules", "reglas")
 async def rules(p: Peticion):
-    reglas = db.ajustes(p.chat.id)["reglas"]
-    if not reglas:
-        raise Aviso("📜 Este grupo todavía no tiene reglas. Un admin las puede poner con /setrules")
-    await p.responder(ui.tarjeta(f"📜 Reglas de {escape(p.chat.title)}", escape(reglas)))
+    a = db.ajustes(p.chat.id)
+    m = a["reglas_msg"]
+    if not m["texto"] and not m["media"]:
+        raise Aviso("📜 Este grupo todavía no tiene reglas. Un admin las puede poner en /settings ➜ 📜 Reglamento.")
+    if p.texto:
+        parte = parte_de_reglas(m["texto"], p.texto)
+        if not parte:
+            raise Aviso("🔍 No encontré esa parte del reglamento.")
+        await p.responder(parte)
+        return
+    import mensajes
+    await mensajes.enviar(p.bot, p.chat.id, m, p.user, p.chat, m["texto"], reply_to_message_id=p.msg.message_id)
 
 
 async def _cambiar_mensaje(p: Peticion, clave: str, nombre: str):
+    import mensajes
     a = db.ajustes(p.chat.id)
-    texto = _texto_o_respondido(p)
-    if texto.lower() in ("on", "off"):
-        a[clave]["on"] = texto.lower() == "on"
+    html = _html_o_respondido(p)
+    if html.lower() in ("on", "off"):
+        a[clave]["on"] = html.lower() == "on"
         respuesta = f"{nombre}: {ui.si_no(a[clave]['on'])}"
-    elif texto:
-        a[clave] = {"on": True, "texto": texto}
-        respuesta = f"{nombre} guardada ✅. Así se verá:\n\n" + rellenar(texto, p.user, p.chat)
+    elif html:
+        a[clave]["on"] = True
+        a[clave]["mensaje"]["texto"] = html
+        respuesta = (f"{nombre} guardada ✅. Así se verá:\n\n"
+                     + mensajes.rellenar(html, p.user, p.chat, a["reglas_msg"]["texto"]))
     else:
-        raise Aviso(
-            f"✏️ Escribe el texto, o <code>on</code>/<code>off</code>.\n"
-            "Puedes usar {nombre}, {usuario}, {id} y {grupo}."
-        )
+        raise Aviso("✏️ Escribe el texto, o <code>on</code>/<code>off</code>.\n" + mensajes.VARIABLES_AYUDA)
     db.guardar_ajustes(p.chat.id, a)
     await p.responder(respuesta)
-
-
-def rellenar(plantilla: str, usuario, chat) -> str:
-    texto = escape(plantilla)
-    reemplazos = {
-        "{nombre}": mention_html(usuario.id, usuario.full_name),
-        "{usuario}": f"@{usuario.username}" if usuario.username else escape(usuario.full_name),
-        "{id}": str(usuario.id),
-        "{grupo}": escape(chat.title or ""),
-    }
-    for clave, valor in reemplazos.items():
-        texto = texto.replace(clave, valor)
-    return texto
 
 
 comando("setwelcome", "welcome", rol="admin")(lambda p: _cambiar_mensaje(p, "bienvenida", "👋 Bienvenida"))
@@ -602,18 +631,23 @@ comando("setgoodbye", "goodbye", rol="admin")(lambda p: _cambiar_mensaje(p, "des
 @comando("antiflood", rol="admin")
 async def antiflood(p: Peticion):
     a = db.ajustes(p.chat.id)
+    f = a["antiflood"]
     if p.args and p.args[0].lower() in ("on", "off"):
-        a["antiflood"]["on"] = p.args[0].lower() == "on"
+        encender = p.args[0].lower() == "on"
+        f["castigo"]["borrar"] = encender
+        if not encender:
+            f["castigo"]["accion"] = "off"
     elif p.args and p.args[0].isdigit():
-        a["antiflood"]["on"] = True
-        a["antiflood"]["mensajes"] = max(2, min(50, int(p.args[0])))
+        f["castigo"]["borrar"] = True
+        f["mensajes"] = max(2, min(20, int(p.args[0])))
         if len(p.args) > 1 and p.args[1].isdigit():
-            a["antiflood"]["segundos"] = max(1, min(60, int(p.args[1])))
+            f["segundos"] = max(2, min(20, int(p.args[1])))
     else:
         raise Aviso("🌊 Uso: /antiflood 5 [segundos] · /antiflood off")
     db.guardar_ajustes(p.chat.id, a)
-    f = a["antiflood"]
-    await p.responder(f"🌊 Antiflood {ui.si_no(f['on'])}: máximo {f['mensajes']} mensajes en {f['segundos']} s.")
+    from castigos import activo, describir
+    await p.responder(f"🌊 Antiflood {ui.si_no(activo(f['castigo']))}: {f['mensajes']} mensajes en "
+                      f"{f['segundos']} segundos · Castigo: {describir(f['castigo'])}")
 
 
 @comando("silence", rol="cofounder")
@@ -824,6 +858,18 @@ async def game(p: Peticion):
 
 @comando("start", solo_grupo=False)
 async def start(p: Peticion):
+    if p.chat.type == ChatType.PRIVATE and p.texto.startswith("cap_") and p.texto[4:].lstrip("-").isdigit():
+        import entradas  # Aquí para no crear una importación circular
+        await entradas.captcha_privado(p.update, p.context, int(p.texto[4:]))
+        return
+    if p.chat.type == ChatType.PRIVATE and p.texto.startswith("rules_") and p.texto[6:].lstrip("-").isdigit():
+        import mensajes
+        chat_id = int(p.texto[6:])
+        m = db.ajustes(chat_id)["reglas_msg"]
+        if not m["texto"] and not m["media"]:
+            raise Aviso("📜 Ese grupo todavía no tiene reglas.")
+        await mensajes.enviar(p.bot, p.chat.id, m, p.user, await p.bot.get_chat(chat_id), m["texto"])
+        return
     if p.chat.type == ChatType.PRIVATE and p.texto.startswith("cfg_") and p.texto[4:].lstrip("-").isdigit():
         # Llegó desde el botón "👤 En privado" de /settings
         chat_id = int(p.texto[4:])
@@ -846,9 +892,9 @@ async def ayuda(p: Peticion):
 async def me(p: Peticion):
     obj = Objetivo(p.user.id, p.user.full_name)
     texto = await texto_info(p, obj)
-    reglas = db.ajustes(p.chat.id)["reglas"]
+    reglas = db.ajustes(p.chat.id)["reglas_msg"]["texto"]
     if reglas:
-        texto += f"\n\n📜 <b>Reglas</b>\n{escape(reglas)}"
+        texto += f"\n\n📜 <b>Reglas</b>\n{reglas}"
     await enviar_privado(p, texto)
     await p.responder("📬 Te envié tu ficha por privado.")
 

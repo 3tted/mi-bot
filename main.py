@@ -17,6 +17,7 @@ import dueno
 import entradas
 import extras
 import ia
+import menu
 import proteccion
 import ui
 from comandos import COMANDOS, avisar_staff, ejecutar, texto_warns
@@ -30,8 +31,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 # Nunca las escribas directamente en el código.
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 
-# "/ban", ".ban" o "/ban@Danny_PhanBot"
-PATRON_COMANDO = re.compile(r"^[/.]([A-Za-z0-9_]{1,32})(?:@(\w+))?(?=\s|$)")
+# Prefijos como en Group Help: /ban .ban ,ban ;ban !ban (y /ban@Danny_PhanBot)
+PATRON_COMANDO = re.compile(r"^[/.,;!]([A-Za-z0-9_]{1,32})(?:@(\w+))?(?=\s|$)")
 ES_GRUPO = (ChatType.GROUP, ChatType.SUPERGROUP)
 
 
@@ -57,8 +58,13 @@ async def procesar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if usuario and not usuario.is_bot:
         db.recordar_usuario(usuario.id, usuario.username, usuario.full_name)
+    # Un admin escribiendo un valor que pidió el menú (duración, texto de bienvenida, enlaces...)
+    if await menu.capturar(update, context):
+        return
 
     en_grupo = chat.type in ES_GRUPO
+    if en_grupo and usuario and not usuario.is_bot:
+        await entradas.revisar_presentacion(update, context)
     if en_grupo:
         db.tocar_grupo(chat.id, chat.title, chat.username)
         if usuario and not usuario.is_bot and not mensaje.sender_chat:
@@ -118,12 +124,33 @@ async def procesar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Botones
 # =====================================================================
 
+async def mostrar_reglas(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+    """Botón "Nombre - rules" de un mensaje personalizado."""
+    q = update.callback_query
+    texto = re.sub(r"<[^>]+>", "", db.ajustes(chat_id)["reglas_msg"]["texto"]).strip()
+    if not texto:
+        await q.answer("📜 Este grupo todavía no tiene reglas.", show_alert=True)
+    elif len(texto) <= 190:
+        await q.answer(texto, show_alert=True)
+    else:
+        await q.answer(url=f"https://t.me/{context.bot.username}?start=rules_{chat_id}")
+
+
 async def botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     tipo, *partes = q.data.split(":")
     privado = q.message.chat.type == ChatType.PRIVATE
 
-    if tipo == "own":
+    if tipo == "g":
+        await menu.manejar(update, context, partes)
+
+    elif tipo == "capp":
+        await entradas.boton_captcha_privado(update, context, partes)
+
+    elif tipo == "rules":
+        await mostrar_reglas(update, context, int(partes[0]))
+
+    elif tipo == "own":
         await dueno.botones(update, context, partes)
 
     elif tipo == "cfg":

@@ -226,10 +226,7 @@ SECCIONES: dict[str, Seccion] = {
         f"Packs: {_lista(a['stickers']['packs'])}\n\n"
         "Cualquiera puede pedir uno con <code>/chango</code> (o <code>/chango 😂</code> para un emoji).\n"
         "✏️ <code>/stickerpack nombre</code> · <code>/delpack nombre</code> · <code>/packs</code>"),
-        [O(("stickers", "cada"), "Por tiempo", [
-            (0, "❌ Apagado"), (1, "⏱️ Cada minuto"), (5, "Cada 5 min"), (15, "Cada 15 min"),
-            (30, "Cada 30 min"), (60, "Cada hora"), (180, "Cada 3 horas"), (720, "Cada 12 horas")]),
-         N(("stickers", "auto"), "Por mensajes", 0, 50, paso=5, sufijo="% de mensajes", cero="apagado")]),
+        [N(("stickers", "auto"), "Mandar solos", 0, 50, paso=5, sufijo="% de mensajes", cero="apagado")]),
     "registro": Seccion("🔍 Canal de registro", "🔍 Canal de registro", lambda a: (
         f"Canal actual: {('<code>' + str(a['registro']['chat_id']) + '</code>') if a['registro']['chat_id'] else 'ninguno'}\n\n"
         "1. Añádeme como admin a un canal o grupo privado.\n"
@@ -430,9 +427,6 @@ async def manejar(update: Update, context: ContextTypes.DEFAULT_TYPE, partes: li
         clave, indice = partes[2], int(partes[3])
         cambiar(a, SECCIONES[clave].controles[indice], partes[4] if len(partes) > 4 else None)
         db.guardar_ajustes(chat_id, a)
-        if clave == "stickers":
-            from extras import programar_sticker  # Aquí para no crear una importación circular
-            programar_sticker(context.job_queue, chat_id)
         texto, teclado = texto_seccion(titulo, clave, a), teclado_seccion(chat_id, clave, a)
         aviso = "✅ Guardado"
     else:
